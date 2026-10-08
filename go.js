@@ -2,7 +2,7 @@
   'use strict';
   const helper = window.DeeplinkDemo;
   const $ = id => document.getElementById(id);
-  const clickId = crypto.randomUUID();
+  const clickId = helper.createId();
   let ctx = null;
   let intent = null;
   let activating = false;
@@ -88,7 +88,7 @@
     stage('Команда сохранена, launcher деактивирован', 'Закрываем launcher после сигнала deactivated. Выполнение маршрута и нативный фокус этим сигналом не подтверждаются.');
     closeLauncher('deactivated после сохранения цели и запроса открытия main');
   }
-  function openMain(restartPolling = true) {
+  function openMain(restartPolling = true, userGesture = false) {
     if (!intent || acknowledged || closeRequested) return false;
     stopReceiptPolling();
     try {
@@ -96,8 +96,15 @@
       if (url.protocol !== 'https:' || url.hostname !== 't.me') throw new Error('Недопустимый URL основного приложения');
       // Attach the native handler in activate() first: Telegram can emit deactivated synchronously.
       openingRequested = true;
-      log('Запрашиваем main через openTelegramLink; native ACK отсутствует');
-      ctx.telegram.openTelegramLink(url.href);
+      if (ctx.telegram.platform === 'android' && !userGesture) {
+        // Android's SDK handler ignores automatic opens without a recent WebView tap.
+        // Ordinary t.me navigation follows its internal-link handler instead.
+        log('Запрашиваем main обычным переходом по Telegram-ссылке; native ACK отсутствует');
+        location.assign(url.href);
+      } else {
+        log('Запрашиваем main через openTelegramLink; native ACK отсутствует');
+        ctx.telegram.openTelegramLink(url.href);
+      }
       waitingSince = Date.now();
       if (closeRequested) return true;
       stage('Ожидаем основное приложение', 'Цель сохранена. Команда открытия отправлена Telegram; ждём подтверждение выполненного маршрута.');
@@ -144,7 +151,7 @@
   }
   async function activate() {
     if (activating || acknowledged) return;
-    if (intent) { if (!ctx.localDemo) openMain(); return; }
+    if (intent) { if (!ctx.localDemo) openMain(true, true); return; }
     activating = true;
     $('retry').disabled = true;
     try {
@@ -154,7 +161,7 @@
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
       if (!environmentLogged) {
-        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=launcher-fast-close-4`);
+        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=android-navigation-5`);
         environmentLogged = true;
       }
       if (!ctx) ctx = await helper.init();
@@ -195,7 +202,7 @@
 
   $('click-id').textContent = `…${clickId.slice(-10)}`;
   $('retry').addEventListener('click', activate);
-  $('open-main').addEventListener('click', () => openMain());
+  $('open-main').addEventListener('click', () => openMain(true, true));
   $('resume-main').addEventListener('click', () => {
     if (hasOpener()) {
       window.opener.focus();

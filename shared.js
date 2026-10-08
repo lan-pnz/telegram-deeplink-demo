@@ -9,6 +9,20 @@
   const storageNoticeListeners = new Set();
   const storageReadbackNotice = 'DeviceStorage: ACK записи не получен; сохранение подтверждено чтением.';
 
+  function createId() {
+    const provider = window.crypto || globalThis.crypto;
+    if (provider && typeof provider.randomUUID === 'function') return provider.randomUUID();
+    if (!provider || typeof provider.getRandomValues !== 'function') {
+      throw new Error('Для идентификаторов требуется Web Crypto.');
+    }
+    const bytes = new Uint8Array(16);
+    provider.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, byte => ('0' + byte.toString(16)).slice(-2)).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
   class DeviceStorageTimeoutError extends Error {
     constructor(method, env) {
       super(`DeviceStorage.${method} не ответил за 5 секунд. Платформа: ${env.platform}; API: ${env.apiVersion}; канал: ${env.transport}.`);
@@ -167,7 +181,7 @@
       };
       let deviceKey = await store.get('device');
       if (typeof deviceKey !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(deviceKey)) {
-        deviceKey = crypto.randomUUID();
+        deviceKey = createId();
         await store.set('device', deviceKey);
       }
       const base = 'https://t.me/' + config.botUsername;
@@ -237,5 +251,5 @@
     return { acknowledged: !!value && value.id === id && value.deviceKey === context.deviceKey };
   }
 
-  window.DeeplinkDemo = { environment, onStorageNotice, init, activate, pending, acknowledge, receipt };
+  window.DeeplinkDemo = { createId, environment, onStorageNotice, init, activate, pending, acknowledge, receipt };
 })();

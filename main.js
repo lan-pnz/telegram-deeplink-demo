@@ -2,7 +2,7 @@
   'use strict';
   const helper = window.DeeplinkDemo;
   const $ = id => document.getElementById(id);
-  const sessionId = crypto.randomUUID();
+  const sessionId = helper.createId();
   const allowedRoutes = new Set(['/home', '/contracts/A', '/contracts/B']);
   const appliedIds = new Set();
   const awaitingAck = new Map();
@@ -191,7 +191,7 @@
       $('sdk-version').textContent = env.apiVersion;
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
-      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-fast-verification-3`);
+      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=android-navigation-5`);
       ctx = await helper.init();
       $('mode').textContent = ctx.localDemo ? 'OFFLINE DEMO · loopback' : `TELEGRAM · @${ctx.config.botUsername}`;
       $('platform').textContent = ctx.localDemo ? 'local browser' : ctx.telegram.platform;
