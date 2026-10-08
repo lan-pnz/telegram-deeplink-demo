@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TON HR · Deep link demo</title>
   <script src="./telegram-web-app.js"></script>
-  <script src="./shared.js?v=android-navigation-5"></script>
+  <script src="./shared.js?v=prepare-before-open-7"></script>
   <style>
     :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172c3c; background: #eef3f6; }
     * { box-sizing: border-box; }
@@ -62,7 +62,7 @@
   <main>
     <p class="eyebrow">TON HR · Telegram navigation experiment</p>
     <h1>Один переход. Два состояния приложения.</h1>
-    <p class="intro">Основное приложение получает цель из Telegram DeviceStorage и подтверждает её после открытия страницы. Этот экран помогает проверить новый запуск и возврат в уже работающую сессию.</p>
+    <p class="intro">Демо получает цель из Telegram DeviceStorage. Работающая сессия может подготовить A/B в фоне до открытия окна; показ страницы подтверждается отдельно после активации.</p>
     <div class="topbar">
       <span class="pill" id="mode">Загрузка конфигурации…</span>
       <span class="pill" id="active-state">Проверяем видимость</span>
@@ -77,8 +77,9 @@
             <button class="tab" data-route="/contracts/A">Контракт A</button>
             <button class="tab" data-route="/contracts/B">Контракт B</button>
           </nav>
-          <div class="route-view" id="route-view">
-            <div id="route-content">
+          <div class="route-view" id="route-view" aria-busy="true">
+            <p class="muted" id="route-loading" role="status">Готовим страницу…</p>
+            <div id="route-content" hidden>
               <span class="route-label" id="route-label">Главная страница</span>
               <div class="route-title" id="route-title">Готово к переходу</div>
               <code class="route-path" id="route-path">/home</code>
@@ -125,8 +126,8 @@
         </section>
       </div>
     </div>
-    <p class="footer">Экспериментальный прототип. Получение intent и ACK подтверждают выполнение маршрута в видимом приложении; сами по себе они не доказывают, что Telegram сфокусировал нужное нативное окно. Секреты и initData в журнал не выводятся.</p>
+    <p class="footer">Экспериментальный прототип. Подготовка меняет состояние демо; ACK отдельно подтверждает маршрут после видимого кадра. Эти сигналы не доказывают выбор нативного окна Telegram. Секреты и initData в журнал не выводятся.</p>
   </main>
-  <script src="./main.js?v=smooth-transitions-6"></script>
+  <script src="./main.js?v=prepare-before-open-7"></script>
 </body>
 </html>

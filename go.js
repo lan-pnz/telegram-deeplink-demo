@@ -49,6 +49,42 @@
       $('new-main').href = new URL('./index.html', location.href).href;
     } else $('open-main').hidden = false;
   }
+  function waitForPreparation() {
+    // A closed/suspended main cannot answer. Bound the whole phase, including
+    // a stalled DeviceStorage GET, without treating preparation as a visible ACK.
+    return new Promise(resolve => {
+      let finished = false;
+      let pollTimer = null;
+      const deadlineAt = Date.now() + 350;
+      const deadlineTimer = setTimeout(() => finish(false), 350);
+      function finish(prepared) {
+        if (finished) return;
+        finished = true;
+        clearTimeout(deadlineTimer);
+        if (pollTimer !== null) clearTimeout(pollTimer);
+        resolve(prepared);
+      }
+      async function check() {
+        if (finished) return;
+        if (Date.now() >= deadlineAt) { finish(false); return; }
+        try {
+          const result = await helper.preparation(intent.id);
+          if (finished) return;
+          if (Date.now() >= deadlineAt || openingRequested || closeRequested || acknowledged) { finish(false); return; }
+          if (result && result.prepared && result.target === intent.target) {
+            $('receipt').textContent = 'Страница подготовлена; показ ещё не подтверждён';
+            log(`Подготовка подтверждена: intent=${intent.id.slice(-8)}, сессия=${String(result.sessionId).slice(-8)}`);
+            finish(true);
+          } else pollTimer = setTimeout(check, 25);
+        } catch (error) {
+          if (finished) return;
+          log(`Подготовка не подтверждена: ${String(error.message || error).slice(0, 180)}. Открываем с сохранённой целью.`);
+          finish(false);
+        }
+      }
+      check();
+    });
+  }
   function stopReceiptPolling() {
     if (timer !== null) clearTimeout(timer);
     timer = null;
@@ -161,7 +197,7 @@
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
       if (!environmentLogged) {
-        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=smooth-transitions-6`);
+        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=prepare-before-open-7`);
         environmentLogged = true;
       }
       if (!ctx) ctx = await helper.init();
@@ -191,7 +227,11 @@
       waitingSince = Date.now();
       log(`Цель сохранена: ${intent.target}, intent=${intent.id.slice(-8)}`);
       showActions();
-      if (ctx.localDemo) stage('Цель готова к переходу', hasOpener()
+      stage('Готовим страницу', 'Даём работающему основному приложению до 350 мс на подготовку A/B в фоне.');
+      const prepared = await waitForPreparation();
+      if (openingRequested || closeRequested || acknowledged) return;
+      if (!prepared) log('Подготовка до открытия не подтверждена; цель будет применена после запуска или возобновления main');
+      if (ctx.localDemo) stage(prepared ? 'Страница подготовлена' : 'Цель готова к переходу', hasOpener()
         ? 'Вернитесь в эту сессию без перезагрузки или откройте новую для холодного запуска.'
         : 'Откройте новую сессию. Браузер может блокировать автоматические popup после асинхронного запроса.');
       else if (!openMain(false)) return;

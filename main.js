@@ -4,8 +4,8 @@
   const $ = id => document.getElementById(id);
   const sessionId = helper.createId();
   const allowedRoutes = new Set(['/home', '/contracts/A', '/contracts/B']);
-  const appliedIds = new Set();
-  const awaitingAck = new Map();
+  const preparedIds = new Set();
+  const preparingIds = new Set();
   let ctx = null;
   let syncing = false;
   let resync = false;
@@ -14,6 +14,10 @@
   let lastAppliedId = '';
   let renderedRoute = null;
   let routeAnimation = null;
+  let lastPreparedId = '';
+  let cancelVisibleFrame = null;
+  let preparationTimer = null;
+  let fastPreparationUntil = 0;
 
   function log(message) {
     const li = document.createElement('li');
@@ -49,7 +53,7 @@
     const target = location.hash.slice(1);
     return allowedRoutes.has(target) ? target : '/home';
   }
-  function renderRoute() {
+  function renderRoute(animate = true) {
     const route = currentRoute();
     if (route === renderedRoute) return;
     const animateChange = renderedRoute !== null;
@@ -59,8 +63,11 @@
     $('route-title').textContent = target ? `Контракт ${target}` : 'Готово к переходу';
     $('route-path').textContent = route;
     $('route-description').textContent = target
-      ? `Цель ${target} открыта в сессии ${sessionId.slice(-8)}. Это демонстрационная карточка.`
+      ? `Тестовая карточка ${target} в сессии ${sessionId.slice(-8)}.`
       : 'Откройте ссылку A или B из сообщения Telegram.';
+    $('route-content').hidden = false;
+    $('route-loading').hidden = true;
+    $('route-view').setAttribute('aria-busy', 'false');
     document.querySelectorAll('[data-route]').forEach(button => {
       if (button.dataset.route === route) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
@@ -70,7 +77,7 @@
     const content = $('route-content');
     const reducedMotion = typeof window.matchMedia === 'function'
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (animateChange && document.visibilityState === 'visible' && !reducedMotion
+    if (animate && animateChange && foreground() && !reducedMotion
       && content && typeof content.animate === 'function') {
       // The new route is visible immediately; motion never gates the route ACK.
       try {
@@ -81,10 +88,10 @@
       } catch (_) { routeAnimation = null; }
     }
   }
-  function navigate(route) {
+  function navigate(route, animate = true) {
     if (!allowedRoutes.has(route)) throw new Error('Недопустимый маршрут');
     if (location.hash !== `#${route}`) location.hash = route;
-    renderRoute();
+    renderRoute(animate);
   }
   function reportFailure(error) {
     const message = String(error.message || error).slice(0, 220);
@@ -92,8 +99,50 @@
     if (message !== lastFailure) log(`Ошибка: ${message}`);
     lastFailure = message;
   }
+  function prepareInBackground(intent) {
+    if (preparedIds.has(intent.id) || preparingIds.has(intent.id)) return;
+    preparingIds.add(intent.id);
+    // A slow marker write must not block activation or another navigation.
+    helper.markPrepared(intent.id, sessionId).then(prepared => {
+      if (!prepared) return;
+      preparedIds.add(intent.id);
+      log(`Подготовка в фоне: ${intent.target}, intent=${intent.id.slice(-8)}. Показ ещё не подтверждён.`);
+    }).catch(error => {
+      log(`Подготовка не подтверждена: ${String(error.message || error).slice(0, 180)}`);
+    }).finally(() => preparingIds.delete(intent.id));
+  }
+  function visibleFrame() {
+    if (!foreground() || stopped) return Promise.resolve(false);
+    return new Promise(resolve => {
+      let finished = false;
+      let frameId;
+      const timer = setTimeout(() => finish(false), 250);
+      function finish(visible) {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        if (typeof cancelAnimationFrame === 'function' && frameId !== undefined) cancelAnimationFrame(frameId);
+        cancelVisibleFrame = null;
+        resolve(visible);
+      }
+      cancelVisibleFrame = () => finish(false);
+      frameId = requestAnimationFrame(() => finish(!stopped && foreground()));
+    });
+  }
+  function stopPreparationPolling() {
+    if (preparationTimer !== null) clearTimeout(preparationTimer);
+    preparationTimer = null;
+  }
+  function schedulePreparationPoll() {
+    if (preparationTimer !== null || stopped || foreground() || Date.now() >= fastPreparationUntil) return;
+    preparationTimer = setTimeout(() => {
+      preparationTimer = null;
+      sync('background-poll');
+      schedulePreparationPoll();
+    }, 100);
+  }
   async function sync(reason = 'poll') {
-    if (stopped || !ctx || !foreground()) return;
+    if (stopped || !ctx) return;
     updateForeground();
     if (syncing) { resync = true; return; }
     syncing = true;
@@ -101,42 +150,52 @@
       do {
         resync = false;
         const intent = await helper.pending();
-        if (!foreground()) break;
-        if (intent) {
-          if (!['A', 'B'].includes(intent.target) || typeof intent.id !== 'string') throw new Error('Некорректная команда в хранилище');
-          if (!appliedIds.has(intent.id)) {
-            const route = `/contracts/${intent.target}`;
-            navigate(route);
-            await new Promise(resolve => requestAnimationFrame(resolve));
-            if (!foreground()) break;
-            lastAppliedId = intent.id;
-            appliedIds.add(intent.id);
-            awaitingAck.set(intent.id, intent);
-            $('applied-seq').textContent = `…${intent.id.slice(-8)}`;
-            log(`Переход ${route}, intent=${intent.id.slice(-8)}, источник=${reason}`);
-          }
+        if (stopped) break;
+        if (!intent) {
+          if (renderedRoute === null) renderRoute(false);
+          break;
         }
-        for (const [id, applied] of awaitingAck) {
-          if (!foreground()) break;
-          const acked = await helper.acknowledge(id);
-          awaitingAck.delete(id);
-          if (!acked) {
-            log(`Intent ${id.slice(-8)} уже заменён более новым; старый ACK не записан`);
-            resync = true;
-            continue;
-          }
-          $('acked-seq').textContent = `…${id.slice(-8)}`;
-          log(`ACK intent=${id.slice(-8)}: маршрут выполнен в этой сессии`);
-          status(`Открыт контракт ${applied.target}. Выполнение маршрута подтверждено.`, 'success');
+        if (!['A', 'B'].includes(intent.target) || typeof intent.id !== 'string') throw new Error('Некорректная команда в хранилище');
+        const route = `/contracts/${intent.target}`;
+        if (lastPreparedId !== intent.id || currentRoute() !== route || renderedRoute === null) {
+          navigate(route, foreground());
+          lastPreparedId = intent.id;
+          $('applied-seq').textContent = `…${intent.id.slice(-8)}`;
+          log(`Состояние ${route}, intent=${intent.id.slice(-8)}, источник=${reason}`);
         }
+        if (!foreground()) {
+          prepareInBackground(intent);
+          status(`Подготовлен контракт ${intent.target}. Ожидаем активации приложения.`);
+          break;
+        }
+        if (!await visibleFrame()) break;
+        const latest = await helper.pending();
+        if (stopped || !foreground() || !latest) break;
+        if (latest.id !== intent.id || latest.target !== intent.target || currentRoute() !== route) {
+          resync = true;
+          continue;
+        }
+        const acked = await helper.acknowledge(intent.id);
+        if (!acked) {
+          log(`Intent ${intent.id.slice(-8)} уже заменён более новым; старый ACK не записан`);
+          resync = true;
+          continue;
+        }
+        lastAppliedId = intent.id;
+        $('acked-seq').textContent = `…${intent.id.slice(-8)}`;
+        log(`ACK intent=${intent.id.slice(-8)}: маршрут выполнен в этой сессии`);
+        status(`Открыт контракт ${intent.target}. Выполнение маршрута подтверждено.`, 'success');
         if (lastFailure) {
           log('Хранилище снова доступно');
           lastFailure = '';
-          if (!awaitingAck.size) status(lastAppliedId ? 'Маршрут подтверждён. Ожидаем следующую ссылку.' : 'Приложение готово. Ожидаем ссылку из сообщения.', 'success');
+          status(lastAppliedId ? 'Маршрут подтверждён. Ожидаем следующую ссылку.' : 'Приложение готово. Ожидаем ссылку из сообщения.', 'success');
         }
-      } while (resync && foreground());
+      } while (resync && !stopped);
     } catch (error) { reportFailure(error); }
-    finally { syncing = false; }
+    finally {
+      syncing = false;
+      if (resync && !stopped) sync('queued');
+    }
   }
   function copyButton(text) {
     const button = document.createElement('button');
@@ -184,23 +243,32 @@
   function wake(reason) {
     updateForeground();
     log(`${reason}: ${foreground() ? 'foreground' : 'background'}`);
-    if (foreground()) sync(reason);
+    if (foreground()) stopPreparationPolling();
+    else {
+      if (cancelVisibleFrame) cancelVisibleFrame();
+      fastPreparationUntil = Date.now() + 3000;
+      schedulePreparationPoll();
+    }
+    sync(reason);
   }
 
   $('session-id').textContent = sessionId;
   $('session-pill').textContent = `Сессия ${sessionId.slice(-8)}`;
-  renderRoute();
-  window.addEventListener('hashchange', renderRoute);
+  window.addEventListener('hashchange', () => renderRoute(foreground()));
   document.querySelectorAll('[data-route]').forEach(button => button.addEventListener('click', () => {
-    navigate(button.dataset.route);
+    navigate(button.dataset.route, foreground());
     log(`Ручная навигация ${button.dataset.route}`);
   }));
   $('create-links').addEventListener('click', showLinks);
   window.addEventListener('focus', () => wake('focus'));
-  window.addEventListener('blur', updateForeground);
+  window.addEventListener('blur', () => wake('blur'));
   window.addEventListener('online', () => wake('online'));
   document.addEventListener('visibilitychange', () => wake('visibilitychange'));
-  window.addEventListener('pagehide', () => { stopped = true; });
+  window.addEventListener('pagehide', () => {
+    stopped = true;
+    stopPreparationPolling();
+    if (cancelVisibleFrame) cancelVisibleFrame();
+  });
   window.addEventListener('pageshow', () => { stopped = false; sync('pageshow'); });
   (async () => {
     try {
@@ -210,7 +278,7 @@
       $('sdk-version').textContent = env.apiVersion;
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
-      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=smooth-transitions-6`);
+      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=prepare-before-open-7`);
       ctx = await helper.init();
       $('mode').textContent = ctx.localDemo ? 'OFFLINE DEMO · loopback' : `TELEGRAM · @${ctx.config.botUsername}`;
       $('platform').textContent = ctx.localDemo ? 'local browser' : ctx.telegram.platform;

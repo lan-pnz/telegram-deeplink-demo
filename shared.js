@@ -244,6 +244,40 @@
     return true;
   }
 
+  async function markPrepared(id, sessionId) {
+    await init();
+    if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(id)
+        || typeof sessionId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(sessionId)) {
+      throw new Error('Некорректный ID подготовки.');
+    }
+    const intent = await context.store.get('pending');
+    if (!validIntent(intent) || intent.id !== id) return false;
+    const age = Date.now() - intent.createdAt;
+    if (age > ttl || age < -30000) return false;
+    await context.store.set('prepared_' + id, {
+      id, target: intent.target, deviceKey: context.deviceKey,
+      sessionId, preparedAt: Date.now(),
+    });
+    return true;
+  }
+
+  async function preparation(id) {
+    await init();
+    if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(id)) throw new Error('Некорректный ID команды.');
+    const intent = await context.store.get('pending');
+    if (!validIntent(intent) || intent.id !== id) return { prepared: false };
+    const intentAge = Date.now() - intent.createdAt;
+    if (intentAge > ttl || intentAge < -30000) return { prepared: false };
+    const value = await context.store.get('prepared_' + id);
+    const age = value && Date.now() - value.preparedAt;
+    const prepared = !!value && value.id === id && value.deviceKey === context.deviceKey
+      && value.target === intent.target
+      && typeof value.sessionId === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(value.sessionId)
+      && typeof value.preparedAt === 'number' && Number.isFinite(value.preparedAt)
+      && age >= -30000 && age <= ttl;
+    return prepared ? { prepared: true, target: value.target, sessionId: value.sessionId } : { prepared: false };
+  }
+
   async function receipt(id) {
     await init();
     if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(id)) throw new Error('Некорректный ID команды.');
@@ -251,5 +285,5 @@
     return { acknowledged: !!value && value.id === id && value.deviceKey === context.deviceKey };
   }
 
-  window.DeeplinkDemo = { createId, environment, onStorageNotice, init, activate, pending, acknowledge, receipt };
+  window.DeeplinkDemo = { createId, environment, onStorageNotice, init, activate, pending, markPrepared, preparation, acknowledge, receipt };
 })();
