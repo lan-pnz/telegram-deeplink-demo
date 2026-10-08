@@ -85,7 +85,6 @@
       let finished = false;
       let readPending = false;
       let readTimer;
-      const startedAt = Date.now();
       const deadline = setTimeout(() => finish(false, new DeviceStorageTimeoutError('setItem', env)), 5000);
 
       function finish(success, error, confirmedByReadback = false) {
@@ -118,7 +117,7 @@
           readPending = false;
           if (finished) return;
           if (!error && stored === value) finish(true, undefined, true);
-          else scheduleRead(Date.now() - startedAt < 250 ? 25 : 250);
+          else scheduleRead(250);
         }
         try { storage.getItem(fullKey, answer); }
         catch (error) { answer(error); }
@@ -126,7 +125,7 @@
 
       // Issue one mutation. If its ACK is missing, read the exact value early;
       // a pending GET shares the original SET deadline and is never overlapped.
-      scheduleRead(25);
+      scheduleRead(150);
       try {
         storage.setItem(fullKey, value, (error, stored) => {
           if (finished) return;
@@ -141,21 +140,10 @@
   async function init() {
     if (initialization) return initialization;
     initialization = (async () => {
-      const embedded = typeof document !== 'undefined' && document.getElementById('demo-config');
-      const embeddedText = embedded && embedded.textContent.trim();
-      let config;
-      if (embeddedText) {
-        try { config = JSON.parse(embeddedText); }
-        catch (_) { throw new Error('Некорректная конфигурация Telegram-приложений.'); }
-      } else {
-        const response = await fetch('./config.json', { cache: 'no-store' });
-        if (!response.ok) throw new Error('Не удалось прочитать config.json.');
-        config = await response.json();
-      }
-      if (!config || typeof config !== 'object' || Array.isArray(config)
-          || typeof config.botUsername !== 'string' || typeof config.launcherShortName !== 'string'
-          || (config.mainAppShortName !== undefined && typeof config.mainAppShortName !== 'string')
-          || !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(config.botUsername)
+      const response = await fetch('./config.json', { cache: 'no-store' });
+      if (!response.ok) throw new Error('Не удалось прочитать config.json.');
+      const config = await response.json();
+      if (!/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(config.botUsername)
           || !/^[A-Za-z0-9_]{1,64}$/.test(config.launcherShortName)
           || (config.mainAppShortName && !/^[A-Za-z0-9_]{1,64}$/.test(config.mainAppShortName))) {
         throw new Error('Некорректная конфигурация Telegram-приложений.');

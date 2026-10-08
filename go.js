@@ -16,27 +16,6 @@
   let closeRequested = false;
   let nativeHandlersAttached = false;
   let environmentLogged = false;
-  let handoffTimer = null;
-  const handoffStartedAt = Date.now();
-
-  function stopHandoffTimer() {
-    if (handoffTimer !== null) clearTimeout(handoffTimer);
-    handoffTimer = null;
-  }
-  function revealLauncher() {
-    stopHandoffTimer();
-    document.body.removeAttribute('data-handoff-pending');
-  }
-  function onLauncherWake() {
-    checkReceipt();
-    if (!acknowledged && !closeRequested && document.visibilityState === 'visible'
-      && Date.now() - handoffStartedAt >= 600) revealLauncher();
-  }
-  // This timer exposes fallback controls only; opening never waits for it.
-  handoffTimer = setTimeout(() => {
-    handoffTimer = null;
-    if (!acknowledged && !closeRequested && document.visibilityState === 'visible') revealLauncher();
-  }, 600);
 
   function log(message) {
     const li = document.createElement('li');
@@ -53,7 +32,6 @@
     $('indicator').dataset.error = String(error);
   }
   function reportFailure(error) {
-    revealLauncher();
     const message = String(error.message || error).slice(0, 240);
     stage(intent ? 'Цель сохранена, ждём подтверждение' : 'Переход не сохранён', message, true);
     if (message !== lastFailure) log(`Ошибка: ${message}`);
@@ -70,6 +48,42 @@
       $('new-main').hidden = false;
       $('new-main').href = new URL('./index.html', location.href).href;
     } else $('open-main').hidden = false;
+  }
+  function waitForPreparation() {
+    // A closed/suspended main cannot answer. Bound the whole phase, including
+    // a stalled DeviceStorage GET, without treating preparation as a visible ACK.
+    return new Promise(resolve => {
+      let finished = false;
+      let pollTimer = null;
+      const deadlineAt = Date.now() + 350;
+      const deadlineTimer = setTimeout(() => finish(false), 350);
+      function finish(prepared) {
+        if (finished) return;
+        finished = true;
+        clearTimeout(deadlineTimer);
+        if (pollTimer !== null) clearTimeout(pollTimer);
+        resolve(prepared);
+      }
+      async function check() {
+        if (finished) return;
+        if (Date.now() >= deadlineAt) { finish(false); return; }
+        try {
+          const result = await helper.preparation(intent.id);
+          if (finished) return;
+          if (Date.now() >= deadlineAt || openingRequested || closeRequested || acknowledged) { finish(false); return; }
+          if (result && result.prepared && result.target === intent.target) {
+            $('receipt').textContent = 'Страница подготовлена; показ ещё не подтверждён';
+            log(`Подготовка подтверждена: intent=${intent.id.slice(-8)}, сессия=${String(result.sessionId).slice(-8)}`);
+            finish(true);
+          } else pollTimer = setTimeout(check, 25);
+        } catch (error) {
+          if (finished) return;
+          log(`Подготовка не подтверждена: ${String(error.message || error).slice(0, 180)}. Открываем с сохранённой целью.`);
+          finish(false);
+        }
+      }
+      check();
+    });
   }
   function stopReceiptPolling() {
     if (timer !== null) clearTimeout(timer);
@@ -97,7 +111,6 @@
     if (!acknowledged && !openingRequested) return;
     closeRequested = true;
     stopReceiptPolling();
-    stopHandoffTimer();
     log(`Запрошено закрытие launcher: ${reason}`);
     try {
       ctx.telegram.close();
@@ -149,7 +162,6 @@
         if (receipt && receipt.acknowledged) {
           acknowledged = true;
           stopReceiptPolling();
-          stopHandoffTimer();
           $('receipt').textContent = 'ACK получен';
           $('title').textContent = 'Страница открыта';
           $('indicator').dataset.finished = 'true';
@@ -168,9 +180,7 @@
             showActions();
           }
         }
-      } catch (error) {
-        if (!closeRequested && !acknowledged) reportFailure(error);
-      }
+      } catch (error) { reportFailure(error); }
       finally { checking = false; receiptTask = null; }
     })();
     return receiptTask;
@@ -187,13 +197,13 @@
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
       if (!environmentLogged) {
-        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=instant-navigation-8`);
+        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=prepare-before-open-7`);
         environmentLogged = true;
       }
       if (!ctx) ctx = await helper.init();
       if (!nativeHandlersAttached) {
         ctx.telegram.onEvent('deactivated', onDeactivated);
-        ctx.telegram.onEvent('activated', onLauncherWake);
+        ctx.telegram.onEvent('activated', checkReceipt);
         nativeHandlersAttached = true;
       }
       const param = ctx.localDemo ? new URLSearchParams(location.search).get('target') : ctx.telegram.initDataUnsafe.start_param;
@@ -217,8 +227,11 @@
       waitingSince = Date.now();
       log(`Цель сохранена: ${intent.target}, intent=${intent.id.slice(-8)}`);
       showActions();
-      if (ctx.localDemo) { revealLauncher(); }
-      if (ctx.localDemo) stage('Цель сохранена', hasOpener()
+      stage('Готовим страницу', 'Даём работающему основному приложению до 350 мс на подготовку A/B в фоне.');
+      const prepared = await waitForPreparation();
+      if (openingRequested || closeRequested || acknowledged) return;
+      if (!prepared) log('Подготовка до открытия не подтверждена; цель будет применена после запуска или возобновления main');
+      if (ctx.localDemo) stage(prepared ? 'Страница подготовлена' : 'Цель готова к переходу', hasOpener()
         ? 'Вернитесь в эту сессию без перезагрузки или откройте новую для холодного запуска.'
         : 'Откройте новую сессию. Браузер может блокировать автоматические popup после асинхронного запроса.');
       else if (!openMain(false)) return;
@@ -241,8 +254,8 @@
       $('message').textContent = 'Предыдущая вкладка закрыта. Откройте новую сессию.';
     }
   });
-  window.addEventListener('focus', onLauncherWake);
-  window.addEventListener('online', onLauncherWake);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') onLauncherWake(); });
+  window.addEventListener('focus', checkReceipt);
+  window.addEventListener('online', checkReceipt);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkReceipt(); });
   activate();
 })();

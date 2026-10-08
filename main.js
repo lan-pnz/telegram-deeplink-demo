@@ -11,13 +11,10 @@
   let resync = false;
   let stopped = false;
   let lastFailure = '';
+  let lastAppliedId = '';
   let renderedRoute = null;
-  let routeRevision = 0;
+  let routeAnimation = null;
   let lastPreparedId = '';
-  let currentIntent = null;
-  let confirming = false;
-  let activeConfirmation = null;
-  let queuedConfirmation = null;
   let cancelVisibleFrame = null;
   let preparationTimer = null;
   let fastPreparationUntil = 0;
@@ -56,11 +53,10 @@
     const target = location.hash.slice(1);
     return allowedRoutes.has(target) ? target : '/home';
   }
-  function renderRoute() {
+  function renderRoute(animate = true) {
     const route = currentRoute();
     if (route === renderedRoute) return;
-    if (cancelVisibleFrame) cancelVisibleFrame();
-    routeRevision += 1;
+    const animateChange = renderedRoute !== null;
     const target = route.startsWith('/contracts/') ? route.split('/').pop() : '';
     $('route-view').dataset.contract = target;
     $('route-label').textContent = target ? 'Карточка контракта' : 'Главная страница';
@@ -77,11 +73,25 @@
       else button.removeAttribute('aria-current');
     });
     renderedRoute = route;
+    if (routeAnimation) { routeAnimation.cancel(); routeAnimation = null; }
+    const content = $('route-content');
+    const reducedMotion = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (animate && animateChange && foreground() && !reducedMotion
+      && content && typeof content.animate === 'function') {
+      // The new route is visible immediately; motion never gates the route ACK.
+      try {
+        routeAnimation = content.animate([
+          { opacity: 0.9, transform: 'translateY(4px)' },
+          { opacity: 1, transform: 'translateY(0)' },
+        ], { duration: 160, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+      } catch (_) { routeAnimation = null; }
+    }
   }
-  function navigate(route) {
+  function navigate(route, animate = true) {
     if (!allowedRoutes.has(route)) throw new Error('Недопустимый маршрут');
     if (location.hash !== `#${route}`) location.hash = route;
-    renderRoute();
+    renderRoute(animate);
   }
   function reportFailure(error) {
     const message = String(error.message || error).slice(0, 220);
@@ -119,59 +129,6 @@
       frameId = requestAnimationFrame(() => finish(!stopped && foreground()));
     });
   }
-  function confirmationIsCurrent(job) {
-    return !stopped && foreground() && currentIntent && currentIntent.id === job.intent.id
-      && currentIntent.target === job.intent.target && routeRevision === job.revision
-      && currentRoute() === job.route && renderedRoute === job.route;
-  }
-  function queueConfirmation(intent) {
-    if (stopped || !foreground() || currentRoute() !== `/contracts/${intent.target}`) return;
-    const job = { intent, route: `/contracts/${intent.target}`, revision: routeRevision };
-    if (activeConfirmation && activeConfirmation.intent.id === intent.id
-      && activeConfirmation.revision === job.revision) return;
-    // Only the newest route waits behind a slow native receipt write.
-    queuedConfirmation = job;
-    confirmVisible();
-  }
-  async function confirmVisible() {
-    if (confirming || stopped || !foreground()) return;
-    confirming = true;
-    try {
-      while (queuedConfirmation && !stopped && foreground()) {
-        const job = queuedConfirmation;
-        queuedConfirmation = null;
-        activeConfirmation = job;
-        try {
-          if (!confirmationIsCurrent(job) || !await visibleFrame() || !confirmationIsCurrent(job)) continue;
-          const latest = await helper.pending();
-          if (!confirmationIsCurrent(job)) continue;
-          if (!latest || latest.id !== job.intent.id || latest.target !== job.intent.target) {
-            sync('ack-refresh');
-            continue;
-          }
-          const acked = await helper.acknowledge(job.intent.id);
-          if (!acked) {
-            log(`Intent ${job.intent.id.slice(-8)} уже заменён более новым; старый ACK не записан`);
-            if (confirmationIsCurrent(job)) sync('ack-refresh');
-            continue;
-          }
-          log(`ACK intent=${job.intent.id.slice(-8)}: маршрут выполнен в этой сессии`);
-          // The route can change while an ACK is persisted. Its completion must
-          // never replace the newer card's status or trigger another render.
-          if (!confirmationIsCurrent(job)) continue;
-          $('acked-seq').textContent = `…${job.intent.id.slice(-8)}`;
-          status(`Открыт контракт ${job.intent.target}. Выполнение маршрута подтверждено.`, 'success');
-          if (lastFailure) { log('Хранилище снова доступно'); lastFailure = ''; }
-        } catch (error) {
-          if (confirmationIsCurrent(job)) reportFailure(error);
-          else log(`Подтверждение старого маршрута не завершено: ${String(error.message || error).slice(0, 180)}`);
-        } finally { activeConfirmation = null; }
-      }
-    } finally {
-      confirming = false;
-      if (queuedConfirmation && !stopped && foreground()) confirmVisible();
-    }
-  }
   function stopPreparationPolling() {
     if (preparationTimer !== null) clearTimeout(preparationTimer);
     preparationTimer = null;
@@ -195,29 +152,44 @@
         const intent = await helper.pending();
         if (stopped) break;
         if (!intent) {
-          if (renderedRoute === null) renderRoute();
+          if (renderedRoute === null) renderRoute(false);
           break;
         }
         if (!['A', 'B'].includes(intent.target) || typeof intent.id !== 'string') throw new Error('Некорректная команда в хранилище');
         const route = `/contracts/${intent.target}`;
-        currentIntent = intent;
-        // A new message has a new ID. Polling an already applied command must
-        // not undo a manual tab change while its ACK is still being persisted.
-        if (lastPreparedId !== intent.id || renderedRoute === null) {
-          navigate(route);
+        if (lastPreparedId !== intent.id || currentRoute() !== route || renderedRoute === null) {
+          navigate(route, foreground());
           lastPreparedId = intent.id;
           $('applied-seq').textContent = `…${intent.id.slice(-8)}`;
           log(`Состояние ${route}, intent=${intent.id.slice(-8)}, источник=${reason}`);
-          if (foreground()) status(`Открыт контракт ${intent.target}. Подтверждаем показ страницы.`);
         }
         if (!foreground()) {
-          if (currentRoute() === route) {
-            prepareInBackground(intent);
-            status(`Подготовлен контракт ${intent.target}. Ожидаем активации приложения.`);
-          }
+          prepareInBackground(intent);
+          status(`Подготовлен контракт ${intent.target}. Ожидаем активации приложения.`);
           break;
         }
-        queueConfirmation(intent);
+        if (!await visibleFrame()) break;
+        const latest = await helper.pending();
+        if (stopped || !foreground() || !latest) break;
+        if (latest.id !== intent.id || latest.target !== intent.target || currentRoute() !== route) {
+          resync = true;
+          continue;
+        }
+        const acked = await helper.acknowledge(intent.id);
+        if (!acked) {
+          log(`Intent ${intent.id.slice(-8)} уже заменён более новым; старый ACK не записан`);
+          resync = true;
+          continue;
+        }
+        lastAppliedId = intent.id;
+        $('acked-seq').textContent = `…${intent.id.slice(-8)}`;
+        log(`ACK intent=${intent.id.slice(-8)}: маршрут выполнен в этой сессии`);
+        status(`Открыт контракт ${intent.target}. Выполнение маршрута подтверждено.`, 'success');
+        if (lastFailure) {
+          log('Хранилище снова доступно');
+          lastFailure = '';
+          status(lastAppliedId ? 'Маршрут подтверждён. Ожидаем следующую ссылку.' : 'Приложение готово. Ожидаем ссылку из сообщения.', 'success');
+        }
       } while (resync && !stopped);
     } catch (error) { reportFailure(error); }
     finally {
@@ -282,11 +254,9 @@
 
   $('session-id').textContent = sessionId;
   $('session-pill').textContent = `Сессия ${sessionId.slice(-8)}`;
-  window.addEventListener('hashchange', renderRoute);
+  window.addEventListener('hashchange', () => renderRoute(foreground()));
   document.querySelectorAll('[data-route]').forEach(button => button.addEventListener('click', () => {
-    navigate(button.dataset.route);
-    const target = button.dataset.route.split('/').pop();
-    status(target === 'home' ? 'Открыта главная страница.' : `Открыт контракт ${target}.`, 'success');
+    navigate(button.dataset.route, foreground());
     log(`Ручная навигация ${button.dataset.route}`);
   }));
   $('create-links').addEventListener('click', showLinks);
@@ -308,7 +278,7 @@
       $('sdk-version').textContent = env.apiVersion;
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
-      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=instant-navigation-8`);
+      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=prepare-before-open-7`);
       ctx = await helper.init();
       $('mode').textContent = ctx.localDemo ? 'OFFLINE DEMO · loopback' : `TELEGRAM · @${ctx.config.botUsername}`;
       $('platform').textContent = ctx.localDemo ? 'local browser' : ctx.telegram.platform;
@@ -335,10 +305,9 @@
       updateForeground();
       log(`Новый документ main: сессия ${sessionId.slice(-8)}`);
       status('Приложение готово. Ожидаем ссылку из сообщения.', 'success');
-      await sync('cold-start');
-      // Begin diagnostics only after the first target is read and rendered;
-      // the counter itself never gates polling or visible confirmation.
+      // Diagnostic writes must not delay applying a navigation intent.
       updateLaunchCount();
+      await sync('cold-start');
       setInterval(() => sync('poll'), 1000);
     } catch (error) { reportFailure(error); }
   })();
