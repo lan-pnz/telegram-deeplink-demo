@@ -22,6 +22,16 @@
     while ($('log').children.length > 80) $('log').lastElementChild.remove();
   }
   helper.onStorageNotice(log);
+  async function updateLaunchCount() {
+    try {
+      const launches = (Number(await ctx.store.get('main-launches')) || 0) + 1;
+      await ctx.store.set('main-launches', launches);
+      $('launch-count').textContent = `${launches} · хранилище устройства`;
+    } catch (error) {
+      $('launch-count').textContent = 'Недоступен';
+      log(`Счётчик запусков не обновлён: ${String(error.message || error).slice(0, 220)}`);
+    }
+  }
   function status(message, level = 'waiting') {
     $('status').textContent = message;
     $('status').dataset.level = level;
@@ -181,7 +191,7 @@
       $('sdk-version').textContent = env.apiVersion;
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
-      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-write-verification-2`);
+      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-fast-verification-3`);
       ctx = await helper.init();
       $('mode').textContent = ctx.localDemo ? 'OFFLINE DEMO · loopback' : `TELEGRAM · @${ctx.config.botUsername}`;
       $('platform').textContent = ctx.localDemo ? 'local browser' : ctx.telegram.platform;
@@ -191,7 +201,7 @@
       $('storage-note').hidden = false;
       $('storage-note').textContent = ctx.localDemo
         ? 'Локальные вкладки используют хранилище одного origin. Это проверяет обмен командой, но не фокусировку окон Telegram.'
-        : `DeviceStorage принадлежит боту, пользователю и устройству. /${ctx.config.mainAppShortName} и /${ctx.config.launcherShortName} используют один ключ. Запуск и фокус проверяются на клиентах Telegram.`;
+        : `DeviceStorage принадлежит боту, пользователю и устройству. ${ctx.config.mainAppShortName ? '/' + ctx.config.mainAppShortName : 'Main App'} и /${ctx.config.launcherShortName} используют один ключ. Запуск и фокус проверяются на клиентах Telegram.`;
       $('demo-note').hidden = !ctx.localDemo;
       if (ctx.localDemo) {
         $('steps').replaceChildren();
@@ -204,13 +214,12 @@
       if (ctx.localDemo) ctx.telegram.ready();
       ctx.telegram.onEvent('activated', () => wake('activated'));
       ctx.telegram.onEvent('deactivated', () => wake('deactivated'));
-      const launches = (Number(await ctx.store.get('main-launches')) || 0) + 1;
-      await ctx.store.set('main-launches', launches);
-      $('launch-count').textContent = `${launches} · хранилище устройства`;
       $('create-links').disabled = false;
       updateForeground();
       log(`Новый документ main: сессия ${sessionId.slice(-8)}`);
       status('Приложение готово. Ожидаем ссылку из сообщения.', 'success');
+      // Diagnostic writes must not delay applying a navigation intent.
+      updateLaunchCount();
       await sync('cold-start');
       setInterval(() => sync('poll'), 1000);
     } catch (error) { reportFailure(error); }

@@ -65,6 +65,64 @@
     });
   }
 
+  function nativeWrite(storage, fullKey, value) {
+    return new Promise((resolve, reject) => {
+      const env = environment();
+      let finished = false;
+      let readPending = false;
+      let readTimer;
+      const deadline = setTimeout(() => finish(false, new DeviceStorageTimeoutError('setItem', env)), 5000);
+
+      function finish(success, error, confirmedByReadback = false) {
+        if (finished) return;
+        finished = true;
+        clearTimeout(deadline);
+        if (readTimer !== undefined) clearTimeout(readTimer);
+        if (!success) reject(error);
+        else {
+          if (confirmedByReadback) notifyStorageReadback();
+          resolve();
+        }
+      }
+
+      function scheduleRead(delay) {
+        if (finished) return;
+        readTimer = setTimeout(() => {
+          readTimer = undefined;
+          checkStoredValue();
+        }, delay);
+      }
+
+      function checkStoredValue() {
+        if (finished || readPending) return;
+        readPending = true;
+        let answered = false;
+        function answer(error, stored) {
+          if (answered) return;
+          answered = true;
+          readPending = false;
+          if (finished) return;
+          if (!error && stored === value) finish(true, undefined, true);
+          else scheduleRead(250);
+        }
+        try { storage.getItem(fullKey, answer); }
+        catch (error) { answer(error); }
+      }
+
+      // Issue one mutation. If its ACK is missing, read the exact value early;
+      // a pending GET shares the original SET deadline and is never overlapped.
+      scheduleRead(150);
+      try {
+        storage.setItem(fullKey, value, (error, stored) => {
+          if (finished) return;
+          if (error) finish(false, new Error(String(error)));
+          else if (stored !== true) finish(false, new Error('Telegram не подтвердил сохранение команды.'));
+          else finish(true);
+        });
+      } catch (error) { finish(false, error); }
+    });
+  }
+
   async function init() {
     if (initialization) return initialization;
     initialization = (async () => {
@@ -94,18 +152,7 @@
         storage = {
           async get(key) { return nativeCall(telegram.DeviceStorage, 'getItem', prefix + key); },
           async set(key, value) {
-            const fullKey = prefix + key;
-            try {
-              const stored = await nativeCall(telegram.DeviceStorage, 'setItem', fullKey, value);
-              if (stored !== true) throw new Error('Telegram не подтвердил сохранение команды.');
-            } catch (error) {
-              if (!(error instanceof DeviceStorageTimeoutError)) throw error;
-              // A missing callback does not prove that the native write failed.
-              // Confirm the exact payload with one read; never repeat the mutation.
-              const readback = await nativeCall(telegram.DeviceStorage, 'getItem', fullKey);
-              if (readback !== value) throw error;
-              notifyStorageReadback();
-            }
+            await nativeWrite(telegram.DeviceStorage, prefix + key, value);
           },
         };
       }

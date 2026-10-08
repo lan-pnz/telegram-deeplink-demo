@@ -123,7 +123,7 @@
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
       if (!environmentLogged) {
-        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-write-verification-2`);
+        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-fast-verification-3`);
         environmentLogged = true;
       }
       if (!ctx) ctx = await helper.init();
