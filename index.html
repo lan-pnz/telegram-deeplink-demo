@@ -24,9 +24,9 @@
     h2 { font-size: 17px; margin: 0 0 14px; letter-spacing: -.02em; }
     .muted { color: #607887; font-size: 13px; line-height: 1.55; }
     .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
-    .tab { border: 1px solid #cfdee7; color: #476677; background: #f8fbfc; padding: 9px 13px; border-radius: 9px; font-size: 13px; }
+    .tab { border: 1px solid #cfdee7; color: #476677; background: #f8fbfc; padding: 9px 13px; border-radius: 9px; font-size: 13px; transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; }
     .tab[aria-current="page"] { background: #163f59; border-color: #163f59; color: #fff; }
-    .route-view { min-height: 205px; border-radius: 14px; background: #f3f8fa; border: 1px solid #e1edf2; padding: 24px; }
+    .route-view { min-height: 205px; border-radius: 14px; background: #f3f8fa; border: 1px solid #e1edf2; padding: 24px; transition: background-color 180ms ease, border-color 180ms ease; }
     .route-view[data-contract="A"] { background: #eef8f3; border-color: #d1eadd; }
     .route-view[data-contract="B"] { background: #f0f3ff; border-color: #dfe5fa; }
     .route-label { color: #627d8c; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
@@ -54,6 +54,7 @@
     .steps { padding-left: 20px; font-size: 13px; line-height: 1.7; color: #536f80; }
     .steps li + li { margin-top: 8px; }
     .footer { font-size: 12px; color: #718896; line-height: 1.55; margin-top: 22px; }
+    @media (prefers-reduced-motion: reduce) { .tab, .route-view { transition: none; } }
     @media (max-width: 730px) { main { padding: 24px 14px 35px; } .grid { grid-template-columns: 1fr; } .card { padding: 18px; } .route-view { min-height: 180px; } }
   </style>
 </head>
@@ -77,10 +78,12 @@
             <button class="tab" data-route="/contracts/B">Контракт B</button>
           </nav>
           <div class="route-view" id="route-view">
-            <span class="route-label" id="route-label">Главная страница</span>
-            <div class="route-title" id="route-title">Готово к переходу</div>
-            <code class="route-path" id="route-path">/home</code>
-            <p class="muted" id="route-description">Нажмите ссылку на контракт в сообщении или используйте локальную демонстрацию ниже.</p>
+            <div id="route-content">
+              <span class="route-label" id="route-label">Главная страница</span>
+              <div class="route-title" id="route-title">Готово к переходу</div>
+              <code class="route-path" id="route-path">/home</code>
+              <p class="muted" id="route-description">Нажмите ссылку на контракт в сообщении или используйте локальную демонстрацию ниже.</p>
+            </div>
           </div>
           <div class="status" data-level="waiting" id="status" role="status">Инициализация…</div>
         </section>
@@ -124,6 +127,6 @@
     </div>
     <p class="footer">Экспериментальный прототип. Получение intent и ACK подтверждают выполнение маршрута в видимом приложении; сами по себе они не доказывают, что Telegram сфокусировал нужное нативное окно. Секреты и initData в журнал не выводятся.</p>
   </main>
-  <script src="./main.js?v=android-navigation-5"></script>
+  <script src="./main.js?v=smooth-transitions-6"></script>
 </body>
 </html>

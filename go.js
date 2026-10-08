@@ -161,7 +161,7 @@
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
       if (!environmentLogged) {
-        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=android-navigation-5`);
+        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=smooth-transitions-6`);
         environmentLogged = true;
       }
       if (!ctx) ctx = await helper.init();
@@ -173,6 +173,7 @@
       const param = ctx.localDemo ? new URLSearchParams(location.search).get('target') : ctx.telegram.initDataUnsafe.start_param;
       const target = ['A', 'B'].includes(param) ? param : '';
       if (!target) throw new Error(ctx.localDemo ? 'Нет цели A/B. Откройте локальную ссылку из main.' : `Откройте /${ctx.config.launcherShortName}?startapp=A или /${ctx.config.launcherShortName}?startapp=B через Telegram.`);
+      $('title').textContent = `Открываем контракт ${target}`;
       $('mode').textContent = ctx.localDemo ? 'OFFLINE DEMO · loopback' : `TELEGRAM · @${ctx.config.botUsername}`;
       $('platform').textContent = `${ctx.telegram.platform} / ${ctx.telegram.version}`;
       $('storage').textContent = ctx.localDemo ? 'localStorage · локальная симуляция' : 'Telegram DeviceStorage · API 9.0+';

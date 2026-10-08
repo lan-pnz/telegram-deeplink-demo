@@ -12,6 +12,8 @@
   let stopped = false;
   let lastFailure = '';
   let lastAppliedId = '';
+  let renderedRoute = null;
+  let routeAnimation = null;
 
   function log(message) {
     const li = document.createElement('li');
@@ -49,6 +51,8 @@
   }
   function renderRoute() {
     const route = currentRoute();
+    if (route === renderedRoute) return;
+    const animateChange = renderedRoute !== null;
     const target = route.startsWith('/contracts/') ? route.split('/').pop() : '';
     $('route-view').dataset.contract = target;
     $('route-label').textContent = target ? 'Карточка контракта' : 'Главная страница';
@@ -61,6 +65,21 @@
       if (button.dataset.route === route) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
     });
+    renderedRoute = route;
+    if (routeAnimation) { routeAnimation.cancel(); routeAnimation = null; }
+    const content = $('route-content');
+    const reducedMotion = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (animateChange && document.visibilityState === 'visible' && !reducedMotion
+      && content && typeof content.animate === 'function') {
+      // The new route is visible immediately; motion never gates the route ACK.
+      try {
+        routeAnimation = content.animate([
+          { opacity: 0.9, transform: 'translateY(4px)' },
+          { opacity: 1, transform: 'translateY(0)' },
+        ], { duration: 160, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+      } catch (_) { routeAnimation = null; }
+    }
   }
   function navigate(route) {
     if (!allowedRoutes.has(route)) throw new Error('Недопустимый маршрут');
@@ -191,7 +210,7 @@
       $('sdk-version').textContent = env.apiVersion;
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
-      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=android-navigation-5`);
+      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=smooth-transitions-6`);
       ctx = await helper.init();
       $('mode').textContent = ctx.localDemo ? 'OFFLINE DEMO · loopback' : `TELEGRAM · @${ctx.config.botUsername}`;
       $('platform').textContent = ctx.localDemo ? 'local browser' : ctx.telegram.platform;
