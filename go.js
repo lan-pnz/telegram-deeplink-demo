@@ -7,6 +7,7 @@
   let intent = null;
   let activating = false;
   let checking = false;
+  let receiptTask = null;
   let acknowledged = false;
   let waitingSince = 0;
   let timer = null;
@@ -48,10 +49,32 @@
       $('new-main').href = new URL('./index.html', location.href).href;
     } else $('open-main').hidden = false;
   }
+  function stopReceiptPolling() {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  }
+  function canCheckReceipt() {
+    return ctx && intent && !acknowledged && !closeRequested
+      && (ctx.localDemo || openingRequested);
+  }
+  function scheduleReceiptPoll() {
+    if (!canCheckReceipt() || timer !== null) return;
+    const delay = Date.now() - waitingSince < 3000 ? 50 : 1200;
+    timer = setTimeout(async () => {
+      timer = null;
+      await checkReceipt();
+      scheduleReceiptPoll();
+    }, delay);
+  }
+  async function restartReceiptPolling() {
+    await checkReceipt();
+    scheduleReceiptPoll();
+  }
   function closeLauncher(reason) {
     if (!ctx || ctx.localDemo || !intent || closeRequested) return;
     if (!acknowledged && !openingRequested) return;
     closeRequested = true;
+    stopReceiptPolling();
     log(`Запрошено закрытие launcher: ${reason}`);
     try {
       ctx.telegram.close();
@@ -65,8 +88,9 @@
     stage('Команда сохранена, launcher деактивирован', 'Закрываем launcher после сигнала deactivated. Выполнение маршрута и нативный фокус этим сигналом не подтверждаются.');
     closeLauncher('deactivated после сохранения цели и запроса открытия main');
   }
-  function openMain() {
-    if (!intent || acknowledged) return;
+  function openMain(restartPolling = true) {
+    if (!intent || acknowledged || closeRequested) return false;
+    stopReceiptPolling();
     try {
       const url = new URL(ctx.mainAppUrl);
       if (url.protocol !== 'https:' || url.hostname !== 't.me') throw new Error('Недопустимый URL основного приложения');
@@ -75,41 +99,48 @@
       log('Запрашиваем main через openTelegramLink; native ACK отсутствует');
       ctx.telegram.openTelegramLink(url.href);
       waitingSince = Date.now();
-      if (closeRequested) return;
+      if (closeRequested) return true;
       stage('Ожидаем основное приложение', 'Цель сохранена. Команда открытия отправлена Telegram; ждём подтверждение выполненного маршрута.');
+      if (restartPolling) restartReceiptPolling();
+      return true;
     } catch (error) {
       openingRequested = false;
       reportFailure(error);
+      return false;
     }
   }
-  async function checkReceipt() {
-    if (!ctx || !intent || acknowledged || checking) return;
+  function checkReceipt() {
+    if (!canCheckReceipt()) return Promise.resolve();
+    if (checking) return receiptTask;
     checking = true;
-    try {
-      const receipt = await helper.receipt(intent.id);
-      if (receipt && receipt.acknowledged) {
-        acknowledged = true;
-        clearInterval(timer);
-        $('receipt').textContent = 'ACK получен';
-        $('title').textContent = 'Страница открыта';
-        $('indicator').dataset.finished = 'true';
-        stage('Маршрут подтверждён', `Контракт ${intent.target} открыт в видимом основном приложении. Launcher можно закрыть.`);
-        log(`ACK intent=${intent.id.slice(-8)}`);
-        $('open-main').hidden = true;
-        $('retry').hidden = true;
-        if (ctx.localDemo) window.close();
-        else closeLauncher('ACK выполненного маршрута');
-      } else {
-        if (lastFailure) { log('Хранилище снова доступно'); lastFailure = ''; }
-        if (waitingSince && Date.now() - waitingSince > 12000) {
-          stage('Подтверждение пока не получено', ctx.localDemo
-            ? 'Переключитесь в основное приложение: существующая сессия проверяется кнопкой возврата, холодный запуск — новой сессией.'
-            : 'Повторите открытие основного приложения. Цель уже сохранена, повторный intent не создаётся. Ожидание ACK не доказывает отсутствие фокуса.');
-          showActions();
+    receiptTask = (async () => {
+      try {
+        const receipt = await helper.receipt(intent.id);
+        if (receipt && receipt.acknowledged) {
+          acknowledged = true;
+          stopReceiptPolling();
+          $('receipt').textContent = 'ACK получен';
+          $('title').textContent = 'Страница открыта';
+          $('indicator').dataset.finished = 'true';
+          stage('Маршрут подтверждён', `Контракт ${intent.target} открыт в видимом основном приложении. Launcher можно закрыть.`);
+          log(`ACK intent=${intent.id.slice(-8)}`);
+          $('open-main').hidden = true;
+          $('retry').hidden = true;
+          if (ctx.localDemo) window.close();
+          else closeLauncher('ACK выполненного маршрута');
+        } else {
+          if (lastFailure) { log('Хранилище снова доступно'); lastFailure = ''; }
+          if (waitingSince && Date.now() - waitingSince > 12000) {
+            stage('Подтверждение пока не получено', ctx.localDemo
+              ? 'Переключитесь в основное приложение: существующая сессия проверяется кнопкой возврата, холодный запуск — новой сессией.'
+              : 'Повторите открытие основного приложения. Цель уже сохранена, повторный intent не создаётся. Ожидание ACK не доказывает отсутствие фокуса.');
+            showActions();
+          }
         }
-      }
-    } catch (error) { reportFailure(error); }
-    finally { checking = false; }
+      } catch (error) { reportFailure(error); }
+      finally { checking = false; receiptTask = null; }
+    })();
+    return receiptTask;
   }
   async function activate() {
     if (activating || acknowledged) return;
@@ -123,7 +154,7 @@
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
       if (!environmentLogged) {
-        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-fast-verification-3`);
+        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=launcher-fast-close-4`);
         environmentLogged = true;
       }
       if (!ctx) ctx = await helper.init();
@@ -155,16 +186,16 @@
       if (ctx.localDemo) stage('Цель готова к переходу', hasOpener()
         ? 'Вернитесь в эту сессию без перезагрузки или откройте новую для холодного запуска.'
         : 'Откройте новую сессию. Браузер может блокировать автоматические popup после асинхронного запроса.');
-      else openMain();
+      else if (!openMain(false)) return;
       await checkReceipt();
-      if (!acknowledged) timer = setInterval(checkReceipt, 1200);
+      scheduleReceiptPoll();
     } catch (error) { reportFailure(error); }
     finally { activating = false; $('retry').disabled = false; }
   }
 
   $('click-id').textContent = `…${clickId.slice(-10)}`;
   $('retry').addEventListener('click', activate);
-  $('open-main').addEventListener('click', openMain);
+  $('open-main').addEventListener('click', () => openMain());
   $('resume-main').addEventListener('click', () => {
     if (hasOpener()) {
       window.opener.focus();

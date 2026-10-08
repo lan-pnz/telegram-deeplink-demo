@@ -1,12 +1,16 @@
 # Telegram deeplink demo for GitHub Pages
 
-Статический пример для `@my_super_super_puper_test_bot`. Два именованных
-Mini App одного бота: основное `demo` и вспомогательное `launch`.
+Статический пример для `@my_super_super_puper_test_bot`. Основное приложение
+настроено как Main App, вспомогательное — именованный Mini App `launch`.
 Bot token этому сайту не нужен; в GitHub его загружать не требуется.
 
-`go.html` сохраняет новый intent в Telegram DeviceStorage, открывает `demo`
+`go.html` сохраняет новый intent в Telegram DeviceStorage, открывает Main App
 через openTelegramLink. После сохранения команды launcher закрывается при
 native событии `deactivated` после запроса открытия либо после ACK маршрута.
+В сборке launcher `launcher-fast-close-4` подтверждение проверяется через
+50 мс в первые три секунды после запроса открытия, затем через 1200 мс.
+Чтения выполняются последовательно. Закрытие не происходит по одному таймеру:
+нужно получить ACK маршрута либо `deactivated` после сохранения и запроса открытия.
 `index.html` читает
 intent при старте, активации, восстановлении связи и polling, показывает
 тестовый экран A/B и записывает ACK. DeviceStorage локален для пользователя,
@@ -18,16 +22,17 @@ intent при старте, активации, восстановлении с�
 2. Загрузить **содержимое этой папки** в корень default branch репозитория.
 3. Settings → Pages: настроить публикацию из корня default branch.
 4. После публикации адрес примера: `https://<owner>.github.io/telegram-deeplink-demo/`.
-5. В BotFather создать именованный Mini App `demo` с URL
+5. В BotFather настроить Main App с URL
    `https://<owner>.github.io/telegram-deeplink-demo/index.html`.
 6. Создать именованный Mini App `launch` с URL
    `https://<owner>.github.io/telegram-deeplink-demo/go.html`.
-7. Если short names отличаются, изменить `config.json` и опубликовать его.
+7. Для Main App в `config.json` указать `"mainAppShortName": ""`.
+   Если short name launcher отличается, изменить `launcherShortName`.
 
 Основной пример открывается ссылкой:
 
 ```text
-https://t.me/my_super_super_puper_test_bot/demo?startapp
+https://t.me/my_super_super_puper_test_bot?startapp
 ```
 
 Тестовые ссылки в сообщениях:
@@ -37,12 +42,15 @@ https://t.me/my_super_super_puper_test_bot/launch?startapp=A
 https://t.me/my_super_super_puper_test_bot/launch?startapp=B
 ```
 
-Текущий Main Mini App бота менять не требуется: пример использует именованный `demo`.
+Для варианта с именованным основным приложением можно создать `demo` с тем же URL
+и указать `"mainAppShortName": "demo"`. Этот вариант может создавать новый документ
+при повторном клике; для теста сохранения сессии используется Main App.
 URL страницы `go.html` и Telegram short name `launch` — разные настройки.
 
 ## Диагностика DeviceStorage
 
-Сборка `storage-fast-verification-3` показывает платформу, версию WebApp API и канал
+Основное приложение `storage-fast-verification-3` и launcher `launcher-fast-close-4`
+показывают платформу, версию WebApp API и канал
 SDK до обращения к DeviceStorage. При таймауте указывается операция `getItem`
 или `setItem`. `ready()` отправляется до первой операции хранилища, поэтому
 отсутствие ответа не мешает сообщить Telegram о готовности интерфейса.
@@ -67,14 +75,14 @@ callback не доказывает отсутствие поддержки Devic
 
 ## Как проверить
 
-1. При закрытом `demo` нажать A: должен открыться экран A.
-2. Перейти на главную, свернуть `demo`, нажать ту же ссылку A.
-3. При открытом `demo` нажать B: должен появиться экран B.
+1. При закрытом Main App нажать A: должен открыться экран A.
+2. Перейти на главную, свернуть Main App, нажать ту же ссылку A.
+3. При открытом Main App нажать B: должен появиться экран B.
 4. Нажать старую ссылку A: новый intent должен вернуть экран A.
 5. Обычное раскрытие без ссылки не должно повторять подтверждённый переход.
 6. Записать платформу, версию Telegram, IDs документов и intents из журнала.
 
-Сравнить deviceKey в `launch` и `demo`. Проверка на Android, iOS и Desktop нужна
+Сравнить deviceKey в `launch` и Main App. Проверка на Android, iOS и Desktop нужна
 для подтверждения отдельных жизненных циклов Mini Apps, открытия/фокуса main
 и автоматического закрытия launcher. Сам факт записи intent не доказывает
 успешное переключение Telegram.
@@ -93,7 +101,10 @@ callback не доказывает отсутствие поддержки Devic
 `"mainAppShortName": ""` в `config.json`. Тогда launcher открывает
 `https://t.me/my_super_super_puper_test_bot?startapp`. Это меняет адрес основного
 Mini App бота; перед такой настройкой нужно сохранить его прежний URL.
-Переиспользование основной сессии также нужно подтвердить на установленном клиенте.
+В записи пользователя от 8 октября 2026 после настройки Main App переходы
+A → B → A выполняются с одним видимым идентификатором сессии `b04c9ea7`.
+Это подтверждает возврат в существующий документ на показанном клиенте macOS.
+Скорость закрытия новой сборки launcher ещё нужно проверить отдельно.
 
 Закрытие на `deactivated` добавлено, потому что фоновые WebView на мобильных
 устройствах могут приостанавливать JS и не дождаться ACK. Это сигнал потери
