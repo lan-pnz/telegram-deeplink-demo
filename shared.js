@@ -7,9 +7,29 @@
   let initialization;
   const clicks = new Map();
 
+  function environment() {
+    const telegram = window.Telegram && window.Telegram.WebApp;
+    const localDemo = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
+      && !(telegram && telegram.initData);
+    let transport = 'не найден';
+    try {
+      if (window.TelegramWebviewProxy && typeof window.TelegramWebviewProxy.postEvent === 'function') transport = 'TelegramWebviewProxy';
+      else if (window.external && typeof window.external.notify === 'function') transport = 'external.notify';
+      else if (window.parent != null && window.parent !== window) transport = 'iframe';
+    } catch (_) {}
+    return {
+      localDemo,
+      platform: localDemo ? 'local browser' : String(telegram && telegram.platform || 'unknown').slice(0, 32),
+      apiVersion: String(telegram && telegram.version || 'unknown').slice(0, 16),
+      transport: localDemo ? 'локальная симуляция' : transport,
+      telegramContext: !!(telegram && telegram.initData),
+    };
+  }
+
   function nativeCall(storage, method, ...args) {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Telegram DeviceStorage не ответил за 5 секунд.')), 5000);
+      const env = environment();
+      const timer = setTimeout(() => reject(new Error(`DeviceStorage.${method} не ответил за 5 секунд. Платформа: ${env.platform}; API: ${env.apiVersion}; канал: ${env.transport}.`)), 5000);
       try {
         storage[method](...args, (error, value) => {
           clearTimeout(timer);
@@ -35,8 +55,7 @@
         throw new Error('Некорректная конфигурация Telegram-приложений.');
       }
       const telegram = window.Telegram && window.Telegram.WebApp;
-      const localDemo = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
-        && !(telegram && telegram.initData);
+      const localDemo = environment().localDemo;
       let storage;
       if (localDemo) {
         storage = {
@@ -48,6 +67,8 @@
         if (!telegram.isVersionAtLeast('9.0') || !telegram.DeviceStorage) {
           throw new Error('Для статического примера нужен Telegram с DeviceStorage (Bot API 9.0+).');
         }
+        // The interface is already rendered; readiness must not depend on storage responding.
+        telegram.ready();
         storage = {
           async get(key) { return nativeCall(telegram.DeviceStorage, 'getItem', prefix + key); },
           async set(key, value) {
@@ -137,5 +158,5 @@
     return { acknowledged: !!value && value.id === id && value.deviceKey === context.deviceKey };
   }
 
-  window.DeeplinkDemo = { init, activate, pending, acknowledge, receipt };
+  window.DeeplinkDemo = { environment, init, activate, pending, acknowledge, receipt };
 })();

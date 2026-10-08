@@ -14,6 +14,7 @@
   let openingRequested = false;
   let closeRequested = false;
   let nativeHandlersAttached = false;
+  let environmentLogged = false;
 
   function log(message) {
     const li = document.createElement('li');
@@ -115,6 +116,15 @@
     activating = true;
     $('retry').disabled = true;
     try {
+      const env = helper.environment();
+      $('mode').textContent = env.localDemo ? 'OFFLINE DEMO · loopback' : (env.telegramContext ? 'TELEGRAM' : 'ВНЕ TELEGRAM');
+      $('platform').textContent = `${env.platform} / ${env.apiVersion}`;
+      $('sdk-transport').textContent = env.transport;
+      $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
+      if (!environmentLogged) {
+        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-diagnostics-1`);
+        environmentLogged = true;
+      }
       if (!ctx) ctx = await helper.init();
       if (!nativeHandlersAttached) {
         ctx.telegram.onEvent('deactivated', onDeactivated);
@@ -132,7 +142,7 @@
       $('storage-note').textContent = ctx.localDemo
         ? 'Локальный браузер проверяет обмен командой; фокусировка вкладок не моделирует клиентов Telegram.'
         : 'Команда A/B в DeviceStorage не предоставляет доступ к данным и не заменяет серверную авторизацию.';
-      ctx.telegram.ready();
+      if (ctx.localDemo) ctx.telegram.ready();
       stage('Сохраняем цель перехода', 'Повторная попытка использует тот же clickId документа.');
       intent = await helper.activate(target, clickId);
       if (!intent || !['A', 'B'].includes(intent.target) || typeof intent.id !== 'string') throw new Error('Хранилище вернуло некорректную команду');

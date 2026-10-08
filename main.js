@@ -174,6 +174,13 @@
   window.addEventListener('pageshow', () => { stopped = false; sync('pageshow'); });
   (async () => {
     try {
+      const env = helper.environment();
+      $('mode').textContent = env.localDemo ? 'OFFLINE DEMO · loopback' : (env.telegramContext ? 'TELEGRAM' : 'ВНЕ TELEGRAM');
+      $('platform').textContent = env.platform;
+      $('sdk-version').textContent = env.apiVersion;
+      $('sdk-transport').textContent = env.transport;
+      $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
+      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-diagnostics-1`);
       ctx = await helper.init();
       $('mode').textContent = ctx.localDemo ? 'OFFLINE DEMO · loopback' : `TELEGRAM · @${ctx.config.botUsername}`;
       $('platform').textContent = ctx.localDemo ? 'local browser' : ctx.telegram.platform;
@@ -193,7 +200,7 @@
           'Откройте B аналогично. Для холодного запуска используйте «Открыть новую сессию» и сравните идентификаторы.',
         ].forEach(text => { const li = document.createElement('li'); li.textContent = text; $('steps').append(li); });
       }
-      ctx.telegram.ready();
+      if (ctx.localDemo) ctx.telegram.ready();
       ctx.telegram.onEvent('activated', () => wake('activated'));
       ctx.telegram.onEvent('deactivated', () => wake('deactivated'));
       const launches = (Number(await ctx.store.get('main-launches')) || 0) + 1;
