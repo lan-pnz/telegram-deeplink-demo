@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TON HR · Deep link demo</title>
+  <script src="./telegram-web-app.js"></script>
+  <script src="./shared.js"></script>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172c3c; background: #eef3f6; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; cursor: pointer; }
+    main { max-width: 1060px; margin: 0 auto; padding: 34px 22px 50px; }
+    .eyebrow { color: #537182; text-transform: uppercase; letter-spacing: .13em; font-size: 11px; font-weight: 750; margin: 0 0 10px; }
+    h1 { margin: 0; font-size: clamp(26px, 5vw, 36px); letter-spacing: -.035em; }
+    .intro { margin: 12px 0 24px; max-width: 730px; line-height: 1.6; color: #526b7b; }
+    .topbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+    .pill { border: 1px solid #cbdbe4; border-radius: 100px; background: #fff; padding: 6px 10px; font-size: 12px; }
+    .grid { display: grid; grid-template-columns: 1.04fr .96fr; gap: 18px; align-items: start; }
+    .card { background: #fff; border: 1px solid #d6e2e9; border-radius: 18px; padding: 22px; box-shadow: 0 8px 25px #18364a06; }
+    .card + .card { margin-top: 18px; }
+    h2 { font-size: 17px; margin: 0 0 14px; letter-spacing: -.02em; }
+    .muted { color: #607887; font-size: 13px; line-height: 1.55; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+    .tab { border: 1px solid #cfdee7; color: #476677; background: #f8fbfc; padding: 9px 13px; border-radius: 9px; font-size: 13px; }
+    .tab[aria-current="page"] { background: #163f59; border-color: #163f59; color: #fff; }
+    .route-view { min-height: 205px; border-radius: 14px; background: #f3f8fa; border: 1px solid #e1edf2; padding: 24px; }
+    .route-view[data-contract="A"] { background: #eef8f3; border-color: #d1eadd; }
+    .route-view[data-contract="B"] { background: #f0f3ff; border-color: #dfe5fa; }
+    .route-label { color: #627d8c; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+    .route-title { font-size: 29px; font-weight: 750; margin: 11px 0 8px; letter-spacing: -.035em; }
+    code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+    .route-path { color: #537181; }
+    .status { margin-top: 15px; border-left: 3px solid #319675; background: #f2f9f6; border-radius: 0 8px 8px 0; padding: 11px 12px; line-height: 1.5; font-size: 13px; }
+    .status[data-level="error"] { border-color: #bd5952; background: #fff2f0; color: #87433c; }
+    .status[data-level="waiting"] { border-color: #638aab; background: #f1f6fb; }
+    .primary, .secondary { display: inline-flex; justify-content: center; align-items: center; border-radius: 10px; padding: 10px 14px; font-size: 13px; font-weight: 650; text-decoration: none; border: 1px solid transparent; }
+    .primary { background: #163f59; color: #fff; }
+    .secondary { background: #fff; color: #36596e; border-color: #cfdee7; }
+    button:disabled { opacity: .45; cursor: default; }
+    .link-item { margin-top: 14px; padding-top: 14px; border-top: 1px solid #e5edf2; }
+    .link-item strong { font-size: 13px; }
+    .link-code { display: block; margin: 8px 0 11px; padding: 10px; border-radius: 8px; background: #f3f7fa; color: #537181; font-size: 11px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 7px; }
+    .details { display: grid; grid-template-columns: 125px 1fr; gap: 10px; font-size: 12px; }
+    .details dt { color: #718695; }
+    .details dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+    .notice { background: #fff8e9; border: 1px solid #eadab8; color: #7a6740; border-radius: 10px; padding: 12px; font-size: 12px; line-height: 1.55; margin-top: 17px; }
+    .log { padding: 0; margin: 0; list-style: none; font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 270px; overflow: auto; }
+    .log li { padding: 6px 0; border-top: 1px solid #edf2f5; overflow-wrap: anywhere; }
+    .log time { color: #8a9daa; margin-right: 8px; }
+    .steps { padding-left: 20px; font-size: 13px; line-height: 1.7; color: #536f80; }
+    .steps li + li { margin-top: 8px; }
+    .footer { font-size: 12px; color: #718896; line-height: 1.55; margin-top: 22px; }
+    @media (max-width: 730px) { main { padding: 24px 14px 35px; } .grid { grid-template-columns: 1fr; } .card { padding: 18px; } .route-view { min-height: 180px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">TON HR · Telegram navigation experiment</p>
+    <h1>Один переход. Два состояния приложения.</h1>
+    <p class="intro">Основное приложение получает цель из Telegram DeviceStorage и подтверждает её после открытия страницы. Этот экран помогает проверить новый запуск и возврат в уже работающую сессию.</p>
+    <div class="topbar">
+      <span class="pill" id="mode">Загрузка конфигурации…</span>
+      <span class="pill" id="active-state">Проверяем видимость</span>
+      <span class="pill" id="session-pill">Сессия —</span>
+    </div>
+    <div class="grid">
+      <div>
+        <section class="card">
+          <h2>Основное приложение</h2>
+          <nav class="tabs" aria-label="Страницы приложения">
+            <button class="tab" data-route="/home">Главная</button>
+            <button class="tab" data-route="/contracts/A">Контракт A</button>
+            <button class="tab" data-route="/contracts/B">Контракт B</button>
+          </nav>
+          <div class="route-view" id="route-view">
+            <span class="route-label" id="route-label">Главная страница</span>
+            <div class="route-title" id="route-title">Готово к переходу</div>
+            <code class="route-path" id="route-path">/home</code>
+            <p class="muted" id="route-description">Нажмите ссылку на контракт в сообщении или используйте локальную демонстрацию ниже.</p>
+          </div>
+          <div class="status" data-level="waiting" id="status" role="status">Инициализация…</div>
+        </section>
+        <section class="card">
+          <h2>Ссылки для сообщения</h2>
+          <p class="muted">Ссылки A и B открывают launcher. Он сохраняет команду в DeviceStorage этого бота, пользователя и устройства. Проверьте повторное нажатие одной ссылки.</p>
+          <button class="primary" id="create-links" disabled>Показать ссылки A и B</button>
+          <div id="links"></div>
+          <div class="notice" id="demo-note" hidden>Локальная демонстрация проверяет сохранённую цель и подтверждение страницы. Переходы между окнами Telegram и обновление start_param проверяются отдельно в Telegram.</div>
+        </section>
+        <section class="card">
+          <h2>Как проверить</h2>
+          <ol class="steps" id="steps">
+            <li>Создайте ссылки A и B и перенесите их в сообщение Telegram.</li>
+            <li>Откройте A при закрытом приложении: должен появиться контракт A.</li>
+            <li>Оставьте основное приложение открытым, перейдите в чат и откройте B: должен появиться B. Идентификатор сессии покажет, был ли это возврат или новый запуск.</li>
+          </ol>
+        </section>
+      </div>
+      <div>
+        <section class="card">
+          <h2>Диагностика</h2>
+          <dl class="details">
+            <dt>Платформа</dt><dd id="platform">—</dd>
+            <dt>Версия WebApp API</dt><dd id="sdk-version">—</dd>
+            <dt>Сессия</dt><dd><code id="session-id">—</code></dd>
+            <dt>Запуски документа</dt><dd id="launch-count">—</dd>
+            <dt>Хранилище устройства</dt><dd id="storage">—</dd>
+            <dt>Ключ устройства</dt><dd><code id="device-key">—</code></dd>
+            <dt>Применённый intent</dt><dd id="applied-seq">0</dd>
+            <dt>Подтверждённый intent</dt><dd id="acked-seq">0</dd>
+          </dl>
+          <div class="notice" id="storage-note" hidden></div>
+        </section>
+        <section class="card">
+          <h2>События этой сессии</h2>
+          <ul class="log" id="log" aria-label="Журнал событий"></ul>
+        </section>
+      </div>
+    </div>
+    <p class="footer">Экспериментальный прототип. Получение intent и ACK подтверждают выполнение маршрута в видимом приложении; сами по себе они не доказывают, что Telegram сфокусировал нужное нативное окно. Секреты и initData в журнал не выводятся.</p>
+  </main>
+  <script src="./main.js"></script>
+</body>
+</html>
