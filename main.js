@@ -21,6 +21,7 @@
     $('log').prepend(li);
     while ($('log').children.length > 80) $('log').lastElementChild.remove();
   }
+  helper.onStorageNotice(log);
   function status(message, level = 'waiting') {
     $('status').textContent = message;
     $('status').dataset.level = level;
@@ -180,7 +181,7 @@
       $('sdk-version').textContent = env.apiVersion;
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
-      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-diagnostics-1`);
+      log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-write-verification-2`);
       ctx = await helper.init();
       $('mode').textContent = ctx.localDemo ? 'OFFLINE DEMO · loopback' : `TELEGRAM · @${ctx.config.botUsername}`;
       $('platform').textContent = ctx.localDemo ? 'local browser' : ctx.telegram.platform;

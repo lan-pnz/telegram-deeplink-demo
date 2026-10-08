@@ -24,6 +24,7 @@
     $('log').prepend(li);
     while ($('log').children.length > 60) $('log').lastElementChild.remove();
   }
+  helper.onStorageNotice(log);
   function stage(title, message, error = false) {
     $('stage').textContent = title;
     $('message').textContent = message;
@@ -122,7 +123,7 @@
       $('sdk-transport').textContent = env.transport;
       $('storage').textContent = env.localDemo ? 'localStorage · локальная симуляция' : 'DeviceStorage · проверяем ответ';
       if (!environmentLogged) {
-        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-diagnostics-1`);
+        log(`Среда: ${env.platform}; API=${env.apiVersion}; канал=${env.transport}; сборка=storage-write-verification-2`);
         environmentLogged = true;
       }
       if (!ctx) ctx = await helper.init();

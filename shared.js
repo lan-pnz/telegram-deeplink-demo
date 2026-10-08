@@ -6,6 +6,28 @@
   let context;
   let initialization;
   const clicks = new Map();
+  const storageNoticeListeners = new Set();
+  const storageReadbackNotice = 'DeviceStorage: ACK записи не получен; сохранение подтверждено чтением.';
+
+  class DeviceStorageTimeoutError extends Error {
+    constructor(method, env) {
+      super(`DeviceStorage.${method} не ответил за 5 секунд. Платформа: ${env.platform}; API: ${env.apiVersion}; канал: ${env.transport}.`);
+      this.name = 'DeviceStorageTimeoutError';
+    }
+  }
+
+  function onStorageNotice(callback) {
+    if (typeof callback !== 'function') throw new TypeError('Ожидается обработчик уведомления хранилища.');
+    storageNoticeListeners.add(callback);
+    return () => storageNoticeListeners.delete(callback);
+  }
+
+  function notifyStorageReadback() {
+    for (const callback of [...storageNoticeListeners]) {
+      try { callback(storageReadbackNotice); }
+      catch (_) {}
+    }
+  }
 
   function environment() {
     const telegram = window.Telegram && window.Telegram.WebApp;
@@ -29,7 +51,7 @@
   function nativeCall(storage, method, ...args) {
     return new Promise((resolve, reject) => {
       const env = environment();
-      const timer = setTimeout(() => reject(new Error(`DeviceStorage.${method} не ответил за 5 секунд. Платформа: ${env.platform}; API: ${env.apiVersion}; канал: ${env.transport}.`)), 5000);
+      const timer = setTimeout(() => reject(new DeviceStorageTimeoutError(method, env)), 5000);
       try {
         storage[method](...args, (error, value) => {
           clearTimeout(timer);
@@ -72,8 +94,18 @@
         storage = {
           async get(key) { return nativeCall(telegram.DeviceStorage, 'getItem', prefix + key); },
           async set(key, value) {
-            const stored = await nativeCall(telegram.DeviceStorage, 'setItem', prefix + key, value);
-            if (stored !== true) throw new Error('Telegram не подтвердил сохранение команды.');
+            const fullKey = prefix + key;
+            try {
+              const stored = await nativeCall(telegram.DeviceStorage, 'setItem', fullKey, value);
+              if (stored !== true) throw new Error('Telegram не подтвердил сохранение команды.');
+            } catch (error) {
+              if (!(error instanceof DeviceStorageTimeoutError)) throw error;
+              // A missing callback does not prove that the native write failed.
+              // Confirm the exact payload with one read; never repeat the mutation.
+              const readback = await nativeCall(telegram.DeviceStorage, 'getItem', fullKey);
+              if (readback !== value) throw error;
+              notifyStorageReadback();
+            }
           },
         };
       }
@@ -158,5 +190,5 @@
     return { acknowledged: !!value && value.id === id && value.deviceKey === context.deviceKey };
   }
 
-  window.DeeplinkDemo = { environment, init, activate, pending, acknowledge, receipt };
+  window.DeeplinkDemo = { environment, onStorageNotice, init, activate, pending, acknowledge, receipt };
 })();
