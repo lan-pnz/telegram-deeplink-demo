@@ -1,7 +1,7 @@
 # Telegram deeplink demo for GitHub Pages
 
 Статический пример для `@my_super_super_puper_test_bot`. Два именованных
-Mini App одного бота: основное `demo` и вспомогательное `go`.
+Mini App одного бота: основное `demo` и вспомогательное `launch`.
 Bot token этому сайту не нужен; в GitHub его загружать не требуется.
 
 `go.html` сохраняет новый intent в Telegram DeviceStorage, открывает `demo`
@@ -20,7 +20,7 @@ intent при старте, активации, восстановлении с�
 4. После публикации адрес примера: `https://<owner>.github.io/telegram-deeplink-demo/`.
 5. В BotFather создать именованный Mini App `demo` с URL
    `https://<owner>.github.io/telegram-deeplink-demo/index.html`.
-6. Создать именованный Mini App `go` с URL
+6. Создать именованный Mini App `launch` с URL
    `https://<owner>.github.io/telegram-deeplink-demo/go.html`.
 7. Если short names отличаются, изменить `config.json` и опубликовать его.
 
@@ -33,12 +33,12 @@ https://t.me/my_super_super_puper_test_bot/demo?startapp
 Тестовые ссылки в сообщениях:
 
 ```text
-https://t.me/my_super_super_puper_test_bot/go?startapp=A
-https://t.me/my_super_super_puper_test_bot/go?startapp=B
+https://t.me/my_super_super_puper_test_bot/launch?startapp=A
+https://t.me/my_super_super_puper_test_bot/launch?startapp=B
 ```
 
 Текущий Main Mini App бота менять не требуется: пример использует именованный `demo`.
-URL страницы `go.html` и Telegram short name `go` — разные настройки.
+URL страницы `go.html` и Telegram short name `launch` — разные настройки.
 
 ## Как проверить
 
@@ -49,12 +49,12 @@ URL страницы `go.html` и Telegram short name `go` — разные на
 5. Обычное раскрытие без ссылки не должно повторять подтверждённый переход.
 6. Записать платформу, версию Telegram, IDs документов и intents из журнала.
 
-Сравнить deviceKey в `go` и `demo`. Проверка на Android, iOS и Desktop нужна
+Сравнить deviceKey в `launch` и `demo`. Проверка на Android, iOS и Desktop нужна
 для подтверждения отдельных жизненных циклов Mini Apps, открытия/фокуса main
 и автоматического закрытия launcher. Сам факт записи intent не доказывает
 успешное переключение Telegram.
 
-Если `/go` остался открытым и Telegram восстановил его старый документ, новое
+Если `/launch` остался открытым и Telegram восстановил его старый документ, новое
 нажатие ссылки может не выполнить launcher. Журнал ID документов позволяет
 обнаружить это. Это ключевое проверяемое ограничение схемы.
 

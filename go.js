@@ -123,7 +123,7 @@
       }
       const param = ctx.localDemo ? new URLSearchParams(location.search).get('target') : ctx.telegram.initDataUnsafe.start_param;
       const target = ['A', 'B'].includes(param) ? param : '';
-      if (!target) throw new Error(ctx.localDemo ? 'Нет цели A/B. Откройте локальную ссылку из main.' : 'Откройте /go?startapp=A или /go?startapp=B через Telegram.');
+      if (!target) throw new Error(ctx.localDemo ? 'Нет цели A/B. Откройте локальную ссылку из main.' : `Откройте /${ctx.config.launcherShortName}?startapp=A или /${ctx.config.launcherShortName}?startapp=B через Telegram.`);
       $('mode').textContent = ctx.localDemo ? 'OFFLINE DEMO · loopback' : `TELEGRAM · @${ctx.config.botUsername}`;
       $('platform').textContent = `${ctx.telegram.platform} / ${ctx.telegram.version}`;
       $('storage').textContent = ctx.localDemo ? 'localStorage · локальная симуляция' : 'Telegram DeviceStorage · API 9.0+';

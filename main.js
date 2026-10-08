@@ -183,7 +183,7 @@
       $('storage-note').hidden = false;
       $('storage-note').textContent = ctx.localDemo
         ? 'Локальные вкладки используют хранилище одного origin. Это проверяет обмен командой, но не фокусировку окон Telegram.'
-        : 'DeviceStorage принадлежит боту, пользователю и устройству. /demo и /go используют один ключ. Запуск и фокус проверяются на клиентах Telegram.';
+        : `DeviceStorage принадлежит боту, пользователю и устройству. /${ctx.config.mainAppShortName} и /${ctx.config.launcherShortName} используют один ключ. Запуск и фокус проверяются на клиентах Telegram.`;
       $('demo-note').hidden = !ctx.localDemo;
       if (ctx.localDemo) {
         $('steps').replaceChildren();
